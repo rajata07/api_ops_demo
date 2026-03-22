@@ -1,0 +1,29 @@
+# Note: With the introduction of workspaces we recommend using workspaces with APIOps when possible to limit what can be extracted whenever possible. 
+# More information about workspaces can be found here https://learn.microsoft.com/en-us/azure/api-management/workspaces-overview
+
+apiNames:
+  - mock-api-operation
+
+backendNames:
+
+diagnosticNames:
+  - applicationinsights
+  - azuremonitor
+
+loggerNames:
+  - azuremonitor
+  - app-insights
+
+namedValueNames:
+  - 69b40de47b201b1da8d5d6a9
+
+productNames:
+  - developers-x-team
+
+subscriptionNames:
+  - master
+  - 69c040597e3c4c3fade4d551
+
+tagNames:
+
+policyFragmentNames:

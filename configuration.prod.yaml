@@ -1,0 +1,6 @@
+apimServiceName: workshop-apim
+namedValues:
+loggers:
+diagnostics:
+backends:
+apis:
