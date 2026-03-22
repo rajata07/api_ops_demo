@@ -1,4 +1,4 @@
-apimServiceName: workshop-apim-prod
+apimServiceName: contiworkshopapimprod
 namedValues:
 loggers:
 diagnostics:
