@@ -1,4 +1,4 @@
-apimServiceName: workshop-apim
+apimServiceName: workshop-apim-prod
 namedValues:
 loggers:
 diagnostics:
