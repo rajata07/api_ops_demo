@@ -9,7 +9,15 @@ paths:
   /users:
     get:
       summary: Get Users
+      description: Get Users
       operationId: get-users
+      responses:
+        '200':
+          description: ''
+  /dummy:
+    get:
+      summary: Dummy User
+      operationId: dummy-user
       responses:
         '200':
           description: ''
