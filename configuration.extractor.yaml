@@ -1,10 +1,7 @@
 # Note: With the introduction of workspaces we recommend using workspaces with APIOps when possible to limit what can be extracted whenever possible. 
 # More information about workspaces can be found here https://learn.microsoft.com/en-us/azure/api-management/workspaces-overview
 
-apiNames:
-  - mock-api-operation
-
-backendNames:
+# apiNames not specified = extract ALL APIs
 
 diagnosticNames:
   - azuremonitor
@@ -12,12 +9,10 @@ diagnosticNames:
 loggerNames:
   - azuremonitor
 
-namedValueNames:
-
-productNames:
-
-subscriptionNames:
-
-tagNames:
-
-policyFragmentNames:
+# Resources excluded from extraction (empty array = extract none)
+namedValueNames: []
+productNames: []
+subscriptionNames: []
+backendNames: []
+tagNames: []
+policyFragmentNames: []
