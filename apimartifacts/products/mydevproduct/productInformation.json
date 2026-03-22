@@ -1,0 +1,10 @@
+{
+  "properties": {
+    "displayName": "MyDevProduct",
+    "description": "My Dev Product",
+    "approvalRequired": true,
+    "state": "published",
+    "subscriptionRequired": true,
+    "subscriptionsLimit": 10
+  }
+}
