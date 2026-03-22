@@ -1,5 +1,10 @@
 apimServiceName: contiworkshopapimprod
 namedValues:
+  - name: 69b40de47b201b1da8d5d6a9
+    properties:
+      displayName: Logger-Credentials--69b40de47b201b1da8d5d6aa
+      value: "{#appInsightsInstrumentationKey#}"
+      secret: true
 loggers:
 diagnostics:
 backends:
