@@ -1,0 +1,36 @@
+{
+  "properties": {
+    "loggerId": "/subscriptions/39a0ac33-00ab-4b25-ba6b-5d1e97b6b2b7/resourceGroups/NetworkWatcherRG/providers/Microsoft.ApiManagement/service/workshop-apim/loggers/app-insights",
+    "alwaysLog": "allErrors",
+    "backend": {
+      "request": {
+        "dataMasking": {
+          "queryParams": [
+            {
+              "mode": "Hide",
+              "value": "*"
+            }
+          ]
+        }
+      }
+    },
+    "frontend": {
+      "request": {
+        "dataMasking": {
+          "queryParams": [
+            {
+              "mode": "Hide",
+              "value": "*"
+            }
+          ]
+        }
+      }
+    },
+    "httpCorrelationProtocol": "Legacy",
+    "logClientIp": true,
+    "sampling": {
+      "percentage": 100,
+      "samplingType": "fixed"
+    }
+  }
+}
