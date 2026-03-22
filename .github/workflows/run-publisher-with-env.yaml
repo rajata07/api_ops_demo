@@ -50,7 +50,6 @@ jobs:
         # replace within the configuration.[environment].yaml file
         env:
           testSecretValue: ${{ secrets.AZURE_RESOURCE_GROUP_NAME }}
-          appInsightsInstrumentationKey: ${{ secrets.APP_INSIGHTS_INSTRUMENTATION_KEY }}
 
       - name: Run publisher without Config Yaml but with Commit ID
         if: ( inputs.CONFIGURATION_YAML_PATH == '' &&  inputs.COMMIT_ID != '')

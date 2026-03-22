@@ -7,15 +7,12 @@ apiNames:
 backendNames:
 
 diagnosticNames:
-  - applicationinsights
   - azuremonitor
 
 loggerNames:
   - azuremonitor
-  - app-insights
 
 namedValueNames:
-  - 69b40de47b201b1da8d5d6a9
 
 productNames:
   - developers-x-team
