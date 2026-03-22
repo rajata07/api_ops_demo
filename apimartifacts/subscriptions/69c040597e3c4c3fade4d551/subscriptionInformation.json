@@ -1,9 +1,0 @@
-{
-  "properties": {
-    "displayName": "My Subscription to X",
-    "scope": "/subscriptions/39a0ac33-00ab-4b25-ba6b-5d1e97b6b2b7/resourceGroups/NetworkWatcherRG/providers/Microsoft.ApiManagement/service/workshop-apim/products/developers-x-team",
-    "allowTracing": false,
-    "ownerId": "/subscriptions/39a0ac33-00ab-4b25-ba6b-5d1e97b6b2b7/resourceGroups/NetworkWatcherRG/providers/Microsoft.ApiManagement/service/workshop-apim/users/69c03e89450f991f38d0e35a",
-    "state": "active"
-  }
-}
