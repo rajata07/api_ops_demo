@@ -30,7 +30,22 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-    
+
+      - name: Log deployment target
+        run: |
+          echo "========================================="
+          echo "Environment:    ${{ inputs.API_MANAGEMENT_ENVIRONMENT }}"
+          echo "APIM Instance:  ${{ secrets.API_MANAGEMENT_SERVICE_NAME }}"
+          echo "Resource Group: ${{ secrets.AZURE_RESOURCE_GROUP_NAME }}"
+          echo "Config YAML:    ${{ inputs.CONFIGURATION_YAML_PATH }}"
+          echo "Commit ID:      ${{ inputs.COMMIT_ID }}"
+          echo "Artifacts Path: ${{ inputs.API_MANAGEMENT_SERVICE_OUTPUT_FOLDER_PATH }}"
+          echo "========================================="
+          if [ -n "${{ inputs.CONFIGURATION_YAML_PATH }}" ] && [ -f "${{ GITHUB.WORKSPACE }}/${{ inputs.CONFIGURATION_YAML_PATH }}" ]; then
+            echo "Configuration file contents:"
+            cat "${{ GITHUB.WORKSPACE }}/${{ inputs.CONFIGURATION_YAML_PATH }}"
+          fi
+
       # Run Spectral
       - uses: actions/setup-node@v4
         with:
