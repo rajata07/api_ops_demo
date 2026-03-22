@@ -1,0 +1,28 @@
+openapi: 3.0.1
+info:
+  title: Mock API
+  description: ''
+  version: '1.0'
+servers:
+  - url: https://workshop-apim.azure-api.net
+paths:
+  /users:
+    get:
+      summary: Get Users
+      operationId: get-users
+      responses:
+        '200':
+          description: ''
+components:
+  securitySchemes:
+    apiKeyHeader:
+      type: apiKey
+      name: Ocp-Apim-Subscription-Key
+      in: header
+    apiKeyQuery:
+      type: apiKey
+      name: subscription-key
+      in: query
+security:
+  - apiKeyHeader: [ ]
+  - apiKeyQuery: [ ]
