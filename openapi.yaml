@@ -1,0 +1,48 @@
+openapi: 3.1.0
+info:
+  title: (title)
+  version: 0.0.0
+tags: []
+paths:
+  /orders:
+    get:
+      operationId: getOrders
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+    post:
+      operationId: createOrder
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+components:
+  schemas:
+    Order:
+      type: object
+      required:
+        - id
+        - amount
+      properties:
+        id:
+          type: string
+        amount:
+          type: integer
+          format: int32
