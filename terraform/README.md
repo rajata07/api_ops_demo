@@ -206,20 +206,139 @@ terraform workspace select prod
 terraform destroy -var-file=prod.tfvars
 ```
 
-## CI/CD
+## CI/CD — The Big Picture
 
-Two GitHub Actions workflows handle automated deployment:
+```
+Developer                  GitHub                           Azure
+───────                    ──────                           ─────
 
-| Workflow | Purpose | Trigger |
+1. Edit files:
+   - api_specs/orders-api.yaml    (API definition)
+   - policies/api-policy.xml      (policies)
+   - main.tf                      (add/change API module)
+   - dev.tfvars / prod.tfvars     (env config)
+        │
+        ▼
+2. Push branch → Open PR to main
+        │
+        ▼
+┌─────────────────────────────────────────────────┐
+│  deploy-apim-terraform.yaml triggers            │
+│  (because files in terraform/** changed)        │
+│                                                 │
+│  Calls deploy-terraform.yaml TWICE:             │
+│                                                 │
+│  ┌─────────────┐    ┌─────────────┐            │
+│  │ plan-dev    │    │ plan-prod   │  parallel   │──▶ No changes to Azure
+│  │ plan only   │    │ plan only   │             │    (just shows what WOULD change)
+│  └─────────────┘    └─────────────┘            │
+└─────────────────────────────────────────────────┘
+        │
+        ▼
+3. Reviewer reads the plan output in the PR
+   "OK, this adds 1 API operation and changes a policy"
+   → Approves and merges PR
+        │
+        ▼
+┌─────────────────────────────────────────────────┐
+│  deploy-apim-terraform.yaml triggers AGAIN      │
+│  (push to main)                                 │
+│                                                 │
+│  Calls deploy-terraform.yaml TWICE:             │
+│                                                 │
+│  ┌─────────────┐    ┌──────────────┐           │
+│  │ deploy-dev  │───▶│ deploy-prod  │ sequential │──▶ ACTUALLY deploys to Azure
+│  │ plan+apply  │    │ plan+apply   │           │
+│  └─────────────┘    └──────────────┘           │
+│                      (waits for dev             │
+│                       + approval gate)          │
+└─────────────────────────────────────────────────┘
+        │
+        ▼
+4. Azure APIM (dev) has the changes
+   Azure APIM (prod) has the changes
+```
+
+Two GitHub Actions workflows handle deployment. The split is intentional — it separates **what** to deploy (caller) from **how** to deploy (reusable):
+
+| Workflow | Who Writes It | What It Does |
 |---|---|---|
-| `deploy-terraform.yaml` | **Reusable** — runs init, plan, apply for any environment | Called by other workflows |
-| `deploy-apim-terraform.yaml` | **Caller** — orchestrates dev → prod deployment | Push to `main` (apply) or PR (plan only) |
+| `deploy-terraform.yaml` | Platform team (once) | The Terraform engine — init, plan, apply |
+| `deploy-apim-terraform.yaml` | Product team (per API) | The dispatcher — "deploy dev then prod" |
 
-### Workflow 1: `deploy-terraform.yaml` (Reusable)
+### Workflow 1: `deploy-apim-terraform.yaml` — The Dispatcher
 
-This is the **shared CI/CD template** — the "platform team" workflow. It handles the Terraform lifecycle for **any** environment. In a real org, this lives in a **separate repo** (e.g. `contoso/shared-workflows`) and is versioned with git tags.
+**This file doesn't run any Terraform itself.** It just calls the reusable workflow with the right inputs, like making phone calls:
 
-**Trigger**: `workflow_call` only — cannot be triggered directly. Other workflows call it.
+- "Hey `deploy-terraform.yaml`, deploy **dev** using **dev.tfvars**"
+- "Hey `deploy-terraform.yaml`, deploy **prod** using **prod.tfvars**"
+
+**Triggers:**
+
+```yaml
+on:
+  push:
+    branches: [main]          # someone merges to main
+    paths: ["terraform/**"]   # AND changed files in terraform/ folder
+  pull_request:
+    branches: [main]          # someone opens a PR to main
+    paths: ["terraform/**"]
+```
+
+**Path filtering**: Only triggers when files in `terraform/` change. Changes to `apimartifacts/`, `openapi.yaml`, or other files don't trigger this workflow.
+
+**On Pull Request** — runs plan only (no changes to Azure):
+
+```yaml
+  plan-dev:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/deploy-terraform.yaml
+    with:
+      environment: dev
+      working_directory: terraform
+      tf_var_file: dev.tfvars
+      plan_only: true              # ← plan only, don't touch Azure
+    secrets: inherit
+
+  plan-prod:                       # runs in parallel with plan-dev
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/deploy-terraform.yaml
+    with:
+      environment: prod
+      working_directory: terraform
+      tf_var_file: prod.tfvars
+      plan_only: true
+    secrets: inherit
+```
+
+**On merge to main** — deploys dev first, then prod:
+
+```yaml
+  deploy-dev:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/deploy-terraform.yaml
+    with:
+      environment: dev
+      working_directory: terraform
+      tf_var_file: dev.tfvars      # plan_only defaults to false → will apply
+    secrets: inherit
+
+  deploy-prod:
+    if: github.event_name == 'push'
+    needs: deploy-dev              # ← waits for dev to succeed first
+    uses: ./.github/workflows/deploy-terraform.yaml
+    with:
+      environment: prod
+      working_directory: terraform
+      tf_var_file: prod.tfvars
+    secrets: inherit
+```
+
+### Workflow 2: `deploy-terraform.yaml` — The Worker
+
+**This is where Terraform actually runs.** It doesn't know or care about APIM — it just runs Terraform for whatever folder and tfvars it's given.
+
+**Trigger**: `workflow_call` only — cannot be triggered directly. Only called by other workflows.
 
 **Inputs it accepts:**
 
@@ -231,16 +350,49 @@ This is the **shared CI/CD template** — the "platform team" workflow. It handl
 | `terraform_version` | No | `1.9.0` | Terraform version to install |
 | `plan_only` | No | `false` | If `true`, runs `plan` but skips `apply` — used for PR checks |
 
-**Steps it runs:**
+**What it does step by step:**
 
 ```
-1. Checkout code
-2. Setup Terraform (install the specified version)
-3. Azure Login (OIDC with service principal)
-4. terraform init
-5. terraform workspace select <env> (or create if it doesn't exist)
-6. terraform plan -var-file=<tfvars> -out=tfplan
-7. terraform apply tfplan                                ← skipped if plan_only=true
+Step 1: Checkout code
+        └─ Gets the repo with all .tf files, api_specs/, policies/
+
+Step 2: Setup Terraform
+        └─ Installs Terraform 1.9.0 on the GitHub runner
+
+Step 3: Azure Login
+        └─ Authenticates to Azure using OIDC (client-id + tenant-id + subscription-id)
+        └─ These secrets come from the GitHub Environment (dev or prod)
+
+Step 4: terraform init
+        └─ Downloads the azurerm provider
+        └─ Initializes the working directory
+
+Step 5: terraform workspace select <env>
+        └─ Switches to "dev" or "prod" workspace
+        └─ This keeps dev state and prod state SEPARATE
+        └─ (creates the workspace if it doesn't exist yet)
+
+Step 6: terraform plan -var-file=dev.tfvars -out=tfplan
+        └─ Reads main.tf → sees module "orders_api"
+        └─ Module reads api_specs/orders-api.yaml via file()
+        └─ Module reads policies/api-policy.xml via file()
+        └─ Compares desired state (code) vs actual state (Azure)
+        └─ Outputs: "I will create/change/destroy X resources"
+        └─ Saves the plan to tfplan file
+
+Step 7: terraform apply tfplan                    ← SKIPPED if plan_only=true
+        └─ Executes the saved plan
+        └─ Creates/updates in Azure:
+           ├─ Resource Group
+           ├─ APIM Instance
+           ├─ API (from OpenAPI spec)             ← orders-api.yaml gets deployed here
+           ├─ API Policy (from XML)               ← api-policy.xml gets applied here
+           ├─ API Version Set
+           ├─ Backend
+           ├─ Product
+           ├─ Product ↔ API link
+           ├─ Subscription
+           └─ Named Value
 ```
 
 **Key design choices:**
@@ -250,47 +402,101 @@ This is the **shared CI/CD template** — the "platform team" workflow. It handl
 - **Environment protection**: When `plan_only=false`, the job is linked to a GitHub Environment, so approval gates on `prod` are respected
 - **Secrets via `inherit`**: Caller workflows pass secrets with `secrets: inherit` — the reusable workflow reads `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` from the environment
 
-### Workflow 2: `deploy-apim-terraform.yaml` (Caller)
+### End-to-End Example: Adding a New API Endpoint
 
-This is what a **product team** writes. It's minimal — just calls the reusable workflow with the right inputs.
-
-**Trigger:**
-
-| Event | Condition | What Happens |
-|---|---|---|
-| `pull_request` to `main` | Changes in `terraform/**` | Runs `plan` for dev AND prod (no apply) |
-| `push` to `main` | Changes in `terraform/**` | Runs `apply` to dev, then prod (sequential) |
-
-**Path filtering**: Only triggers when files in `terraform/` change. Changes to `apimartifacts/`, `openapi.yaml`, or other files don't trigger this workflow.
-
-**Jobs:**
+A developer adds a new `/orders/{id}/status` endpoint. Here's exactly what happens:
 
 ```
-On Pull Request:
-┌──────────────┐    ┌──────────────┐
-│ plan-dev     │    │ plan-prod    │     ← run in parallel
-│ (plan only)  │    │ (plan only)  │     ← reviewer sees both diffs
-└──────────────┘    └──────────────┘
+1. Developer edits terraform/api_specs/orders-api.yaml
+   (adds the new GET /orders/{id}/status operation)
 
-On merge to main:
-┌──────────────┐    ┌──────────────┐
-│ deploy-dev   │───▶│ deploy-prod  │     ← sequential (prod waits for dev)
-│ (plan+apply) │    │ (plan+apply) │     ← prod requires approval if configured
-└──────────────┘    └──────────────┘
+2. Pushes branch "feature/order-status" → Opens PR to main
+
+3. GitHub sees terraform/** changed → triggers deploy-apim-terraform.yaml
+
+4. deploy-apim-terraform.yaml calls deploy-terraform.yaml TWICE:
+
+   ┌─ Call 1: plan-dev ─────────────────────────────────────────┐
+   │  inputs:                                                    │
+   │    environment = "dev"                                      │
+   │    tf_var_file = "dev.tfvars"                              │
+   │    plan_only = true                                         │
+   │                                                             │
+   │  deploy-terraform.yaml runs:                                │
+   │    terraform init                                           │
+   │    terraform workspace select dev                           │
+   │    terraform plan -var-file=dev.tfvars                      │
+   │      → Output: "1 resource will be UPDATED"                │
+   │      → "azurerm_api_management_api.this: import changed"   │
+   │    terraform apply → SKIPPED (plan_only=true)              │
+   └─────────────────────────────────────────────────────────────┘
+
+   ┌─ Call 2: plan-prod (same thing, with prod.tfvars) ─────────┐
+   │    → Output: "1 resource will be UPDATED"                   │
+   └─────────────────────────────────────────────────────────────┘
+
+5. Reviewer sees both plans in the PR → "Looks good, just one API update"
+   → Approves and merges
+
+6. Merge triggers push to main → deploy-apim-terraform.yaml fires again
+
+7. This time it runs deploy jobs (plan_only defaults to false):
+
+   ┌─ Call 1: deploy-dev ───────────────────────────────────────┐
+   │  deploy-terraform.yaml runs:                                │
+   │    terraform init                                           │
+   │    terraform workspace select dev                           │
+   │    terraform plan -var-file=dev.tfvars -out=tfplan          │
+   │    terraform apply tfplan                                   │
+   │      → Updates the API in dev APIM with new operation       │
+   │      → ✅ Done                                              │
+   └─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼ (needs: deploy-dev)
+   ┌─ Call 2: deploy-prod ──────────────────────────────────────┐
+   │  (if prod has approval gate → reviewer approves first)      │
+   │  deploy-terraform.yaml runs:                                │
+   │    terraform init                                           │
+   │    terraform workspace select prod                          │
+   │    terraform plan -var-file=prod.tfvars -out=tfplan         │
+   │    terraform apply tfplan                                   │
+   │      → Updates the API in prod APIM with new operation      │
+   │      → ✅ Done                                              │
+   └─────────────────────────────────────────────────────────────┘
+
+8. Both dev and prod APIM now have the new /orders/{id}/status endpoint
 ```
 
-**The caller workflow is tiny** — this is the point. Product teams don't write CI/CD logic; they just specify which environment and which tfvars file:
+### Why Two Workflow Files Instead of One?
+
+You could put everything in one file. The split is intentional for enterprise scale:
+
+- **`deploy-terraform.yaml`** = the Terraform logic (init, plan, apply). Written **once** by the platform team. Reused by every product team
+- **`deploy-apim-terraform.yaml`** = "I want dev then prod." Written by each product team. **Tiny** — just 4 job definitions
+
+If you had 10 API teams, all 10 would call the **same** `deploy-terraform.yaml`. Nobody duplicates the init/plan/apply logic.
+
+In a real org, the reusable workflow lives in a **separate repo** with git tags:
 
 ```yaml
-jobs:
-  deploy-dev:
-    uses: ./.github/workflows/deploy-terraform.yaml    # In real org: contoso/shared-workflows/...@v1.0
-    with:
-      environment: dev
-      working_directory: terraform
-      tf_var_file: dev.tfvars
-    secrets: inherit
+# What it looks like today (same repo — demo):
+uses: ./.github/workflows/deploy-terraform.yaml
+
+# What it looks like in production (separate repo — versioned):
+uses: contoso/shared-workflows/.github/workflows/deploy-terraform.yaml@v1.0
 ```
+
+### Who Owns What — Summary
+
+| File | Who Writes It | What It Does |
+|---|---|---|
+| `deploy-apim-terraform.yaml` | Product team | "Deploy dev then prod when terraform/ changes" — 4 job definitions, zero Terraform logic |
+| `deploy-terraform.yaml` | Platform team | "Given an environment and tfvars, run init → plan → apply" — the actual Terraform execution |
+| `main.tf` | Product team | "Use the shared module to deploy Orders API" — calls `module "orders_api"` |
+| `modules/apim-api/` | Platform team | "Here's how every API must be deployed" — API + policy + product + subscription |
+| `dev.tfvars` / `prod.tfvars` | Product team | "Here are my env-specific values" — APIM name, backend URL, etc. |
+| `api_specs/orders-api.yaml` | Product team | "Here's my API definition" — read by Terraform via `file()` |
+| `policies/api-policy.xml` | Product team | "Here's my API policy" — read by Terraform via `file()` |
 
 ### Required GitHub Configuration
 
