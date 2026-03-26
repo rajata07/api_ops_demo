@@ -18,13 +18,13 @@ output "apim_developer_portal_url" {
   value       = azurerm_api_management.apim.developer_portal_url
 }
 
-output "api_url" {
+output "orders_api_url" {
   description = "Full URL to the Orders API"
   value       = "${azurerm_api_management.apim.gateway_url}/orders/v1"
 }
 
-output "subscription_primary_key" {
+output "orders_api_subscription_key" {
   description = "Primary subscription key for the Orders API"
-  value       = azurerm_api_management_subscription.orders_subscription.primary_key
+  value       = module.orders_api.subscription_primary_key
   sensitive   = true
 }

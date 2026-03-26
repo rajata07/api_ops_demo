@@ -1,0 +1,72 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Deploy APIM via Terraform — Calls the reusable workflow
+# ─────────────────────────────────────────────────────────────────────────
+# This is what a product team's workflow looks like.
+# It calls the shared reusable workflow and only specifies:
+#   - environment
+#   - which tfvars file to use
+#   - path to the Terraform code
+#
+# In a real org with a separate shared-workflows repo:
+#   uses: contoso/shared-workflows/.github/workflows/deploy-terraform.yaml@v1.0
+# ─────────────────────────────────────────────────────────────────────────
+
+name: Deploy APIM (Terraform)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ─── Plan on PRs (no apply) ────────────────────────────────────────────
+  plan-dev:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/deploy-terraform.yaml
+    with:
+      environment: dev
+      working_directory: terraform
+      tf_var_file: dev.tfvars
+      plan_only: true
+    secrets: inherit
+
+  plan-prod:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/deploy-terraform.yaml
+    with:
+      environment: prod
+      working_directory: terraform
+      tf_var_file: prod.tfvars
+      plan_only: true
+    secrets: inherit
+
+  # ─── Deploy on merge to main ───────────────────────────────────────────
+  deploy-dev:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/deploy-terraform.yaml
+    with:
+      environment: dev
+      working_directory: terraform
+      tf_var_file: dev.tfvars
+    secrets: inherit
+
+  deploy-prod:
+    if: github.event_name == 'push'
+    needs: deploy-dev
+    uses: ./.github/workflows/deploy-terraform.yaml
+    with:
+      environment: prod
+      working_directory: terraform
+      tf_var_file: prod.tfvars
+    secrets: inherit

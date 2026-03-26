@@ -8,12 +8,15 @@ terraform {
     }
   }
 
-  # Uncomment and configure for remote state storage (recommended for teams)
+  # ─── Local State (for demo) ────────────────────────────────────────────
+  # State is stored locally in terraform.tfstate
+  # For teams: use a remote backend (Azure Storage) to share state & enable locking
+  #
   # backend "azurerm" {
   #   resource_group_name  = "rg-terraform-state"
   #   storage_account_name = "tfstateapim"
   #   container_name       = "tfstate"
-  #   key                  = "apim.tfstate"
+  #   key                  = "apim-dev.tfstate"    # use apim-prod.tfstate for prod
   # }
 }
 
@@ -32,7 +35,7 @@ resource "azurerm_resource_group" "rg" {
   }
 }
 
-# ─── API Management Instance ────────────────────────────────────────────
+# ─── APIM Instance ──────────────────────────────────────────────────────
 resource "azurerm_api_management" "apim" {
   name                = var.apim_name
   location            = azurerm_resource_group.rg.location
@@ -47,85 +50,49 @@ resource "azurerm_api_management" "apim" {
   }
 }
 
-# ─── API Version Set (for versioned APIs) ────────────────────────────────
-resource "azurerm_api_management_api_version_set" "orders_version_set" {
-  name                = "orders-api-version-set"
+# ─────────────────────────────────────────────────────────────────────────
+# API Deployments — each API calls the shared module
+# ─────────────────────────────────────────────────────────────────────────
+# The module enforces: naming conventions, versioning, product creation,
+# subscription, and optional policies/backends.
+#
+# In a real org, the module source would be a remote git repo with a tag:
+#   source = "git::https://github.com/contoso/terraform-modules.git//modules/apim-api?ref=v1.0"
+#
+# Here we use a local path for demo purposes.
+# ─────────────────────────────────────────────────────────────────────────
+
+module "orders_api" {
+  source = "./modules/apim-api"
+
+  apim_name           = azurerm_api_management.apim.name
   resource_group_name = azurerm_resource_group.rg.name
-  api_management_name = azurerm_api_management.apim.name
-  display_name        = "Orders API"
-  versioning_scheme   = "Segment" # version in URL path: /orders/v1/...
+  api_name            = "orders-api"
+  api_display_name    = "Orders API"
+  api_path            = "orders"
+  api_version         = "v1"
+  openapi_spec        = file("${path.module}/api_specs/orders-api.yaml")
+  policy_xml          = file("${path.module}/policies/api-policy.xml")
+  backend_url         = var.backend_url
 }
 
-# ─── API (imported from OpenAPI spec file) ───────────────────────────────
-# The OpenAPI YAML file is the source of truth for all operations/schemas.
-# Terraform does NOT define operations — the spec file does.
-resource "azurerm_api_management_api" "orders" {
-  name                = "orders-api"
-  resource_group_name = azurerm_resource_group.rg.name
-  api_management_name = azurerm_api_management.apim.name
-  revision            = "1"
-  display_name        = "Orders API"
-  path                = "orders"
-  protocols           = ["https"]
-
-  # Versioning (optional — remove version_set_id and version if not needed)
-  version_set_id = azurerm_api_management_api_version_set.orders_version_set.id
-  version        = "v1"
-
-  import {
-    content_format = "openapi"
-    content_value  = file("${path.module}/api_specs/orders-api.yaml")
-  }
-}
-
-# ─── API Policy ──────────────────────────────────────────────────────────
-resource "azurerm_api_management_api_policy" "orders_policy" {
-  api_name            = azurerm_api_management_api.orders.name
-  api_management_name = azurerm_api_management.apim.name
-  resource_group_name = azurerm_resource_group.rg.name
-
-  xml_content = file("${path.module}/policies/api-policy.xml")
-}
-
-# ─── Backend ─────────────────────────────────────────────────────────────
-resource "azurerm_api_management_backend" "orders_backend" {
-  name                = "orders-backend"
-  resource_group_name = azurerm_resource_group.rg.name
-  api_management_name = azurerm_api_management.apim.name
-  protocol            = "http"
-  url                 = var.backend_url
-}
-
-# ─── Product ─────────────────────────────────────────────────────────────
-# A product groups APIs and controls access via subscriptions.
-resource "azurerm_api_management_product" "orders_product" {
-  product_id            = "orders-product"
-  api_management_name   = azurerm_api_management.apim.name
-  resource_group_name   = azurerm_resource_group.rg.name
-  display_name          = "Orders API Product"
-  subscription_required = true
-  approval_required     = false
-  published             = true # makes it visible in the developer portal
-}
-
-# ─── Add API to Product ─────────────────────────────────────────────────
-resource "azurerm_api_management_product_api" "orders_product_api" {
-  api_name            = azurerm_api_management_api.orders.name
-  product_id          = azurerm_api_management_product.orders_product.product_id
-  api_management_name = azurerm_api_management.apim.name
-  resource_group_name = azurerm_resource_group.rg.name
-}
-
-# ─── Subscription ───────────────────────────────────────────────────────
-# Creates a subscription key scoped to this specific API.
-resource "azurerm_api_management_subscription" "orders_subscription" {
-  api_management_name = azurerm_api_management.apim.name
-  resource_group_name = azurerm_resource_group.rg.name
-  display_name        = "Orders API Subscription"
-  api_id              = azurerm_api_management_api.orders.id
-  state               = "active"
-  allow_tracing       = false
-}
+# ─────────────────────────────────────────────────────────────────────────
+# Adding a second API? Just add another module block:
+# ─────────────────────────────────────────────────────────────────────────
+#
+# module "payments_api" {
+#   source = "./modules/apim-api"
+#
+#   apim_name           = azurerm_api_management.apim.name
+#   resource_group_name = azurerm_resource_group.rg.name
+#   api_name            = "payments-api"
+#   api_display_name    = "Payments API"
+#   api_path            = "payments"
+#   api_version         = "v1"
+#   openapi_spec        = file("${path.module}/api_specs/payments-api.yaml")
+#   policy_xml          = file("${path.module}/policies/payments-policy.xml")
+#   backend_url         = var.payments_backend_url
+# }
 
 # ─── Named Value ─────────────────────────────────────────────────────────
 resource "azurerm_api_management_named_value" "backend_url" {
