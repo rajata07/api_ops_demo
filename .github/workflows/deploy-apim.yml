@@ -1,9 +1,11 @@
 name: Deploy API
 
 on:
-  push:
-    branches:
-      - dev
+  workflow_dispatch:    # Manual trigger only (for demo)
+  # Uncomment below to enable automatic triggers:
+  # push:
+  #   branches:
+  #     - dev
 
 jobs:
   deploy:
