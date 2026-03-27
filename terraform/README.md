@@ -60,7 +60,11 @@ terraform plan -var-file=dev.tfvars
 terraform apply -var-file=dev.tfvars
 ```
 
-> **Note**: APIM provisioning takes **30-60 minutes** for Developer SKU. This is an Azure limitation, not Terraform.
+> **Note**: APIM provisioning time depends on the SKU:
+> - **V2 SKUs** (`BasicV2_1`, `StandardV2_1`) — **~5 minutes**
+> - **Classic SKUs** (`Developer_1`, `Standard_1`, `Premium_1`) — **30-60 minutes**
+>
+> The default in this demo is `BasicV2_1`. If you use a classic SKU, be prepared to wait.
 
 ### 4. Deploy Prod
 
@@ -574,11 +578,154 @@ The `modules/apim-api/` module guarantees that **every API** deployed by any tea
 
 Teams **cannot skip** these standards because the module creates them automatically.
 
+## Authentication: GitHub to Azure
+
+There are **two ways** for GitHub Actions to authenticate to Azure. This repo uses both.
+
+### Method 1: Client Secret (used by APIOps Extractor/Publisher)
+
+A client secret is essentially a **password** for the service principal. You store it in GitHub Secrets and the workflow sends it to Azure.
+
+```
+GitHub                                    Azure
+──────                                    ─────
+Stores in secrets:
+  AZURE_CLIENT_ID         ──────────┐
+  AZURE_CLIENT_SECRET     ──────────┤──▶ "Here's my ID and password"
+  AZURE_TENANT_ID         ──────────┘         │
+                                              ▼
+                                     Azure AD validates
+                                     the client secret
+                                              │
+                                              ▼
+                                     ✅ Authenticated
+```
+
+**How to set it up:**
+
+1. Create an App Registration (Service Principal) in Azure AD
+2. Go to **Certificates & secrets → Client secrets → New client secret**
+3. Copy the secret value
+4. Store `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` in GitHub Secrets
+
+**Used by** (in this repo): `run-extractor.yaml`, `run-publisher-with-env.yaml`
+
+```yaml
+# How it looks in the workflow:
+env:
+  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+```
+
+### Method 2: OIDC / Federated Credentials (used by Terraform workflows) — RECOMMENDED
+
+No password is stored anywhere. Instead, GitHub generates a **short-lived token** and Azure validates it against a **federated identity credential** configured on the App Registration.
+
+```
+GitHub                                    Azure
+──────                                    ─────
+Stores in secrets:
+  AZURE_CLIENT_ID         ──────────┐
+  AZURE_TENANT_ID         ──────────┤
+  (NO secret needed!)               │
+                                    │
+GitHub generates a short-lived      │
+OIDC token that says:               │
+  "I am repo:rajata07/api_ops_demo  │
+   environment:dev"                 │
+         │                          │
+         ▼                          │
+  Token sent to Azure  ◀────────────┘
+         │
+         ▼
+  Azure checks: "Does the App Registration
+  have a federated credential matching
+  repo:rajata07/api_ops_demo:environment:dev?"
+         │
+         ▼
+  ✅ Match found → Authenticated (no password needed)
+```
+
+**How to set it up:**
+
+1. Create an App Registration (same as Method 1 — can reuse `apiopslab`)
+2. Go to **Certificates & secrets → Federated credentials → Add credential**
+3. Select **GitHub Actions deploying Azure resources**
+4. Add a credential for each trigger type (see table below)
+5. Store only `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` in GitHub (no secret!)
+6. The workflow must have `permissions: id-token: write`
+
+**Used by** (in this repo): `deploy-terraform.yaml`, `deploy-apim-terraform.yaml`, `deploy-apim.yml`
+
+```yaml
+# How it looks in the workflow:
+- uses: azure/login@v2
+  with:
+    client-id: ${{ secrets.AZURE_CLIENT_ID }}
+    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    # No client-secret — OIDC handles it
+```
+
+### Comparison
+
+| | Client Secret (Method 1) | OIDC / Federated (Method 2) |
+|---|---|---|
+| **What's stored in GitHub** | Client ID + **Secret** + Tenant ID | Client ID + Tenant ID (**no secret**) |
+| **What authenticates** | A password (secret) | A short-lived OIDC token |
+| **Token lifetime** | Months/years (until secret expires) | Minutes |
+| **Secret rotation needed** | Yes — must rotate before expiry | No |
+| **If GitHub secrets are leaked** | Attacker has full access | Attacker has nothing usable |
+| **Setup complexity** | Simpler — just create a secret | Must add federated credentials per branch/env |
+| **Recommended by Microsoft** | Legacy approach | **Yes — recommended** |
+
+### Federated Credentials You Need
+
+Each GitHub trigger type generates a different OIDC subject. You need a federated credential for each:
+
+| Credential Name | Entity Type | Value | Why |
+|---|---|---|---|
+| `github-branch-dev` | Branch | `dev` | Workflows triggered by push to `dev` branch |
+| `github-branch-main` | Branch | `main` | Workflows triggered by push to `main` branch |
+| `github-env-dev` | Environment | `dev` | Workflows with `environment: dev` (Terraform, extractor, publisher) |
+| `github-env-prod` | Environment | `prod` | Workflows with `environment: prod` (Terraform, publisher) |
+| `github-pr` | Pull Request | — | Workflows triggered by pull requests (Terraform plan) |
+
+**All credentials use the same settings:**
+
+| Field | Value |
+|---|---|
+| Organization | Your GitHub username or org |
+| Repository | Your repo name |
+| Audience | `api://AzureADTokenExchange` (default) |
+
+### Which Method Should You Use?
+
+| Scenario | Recommendation |
+|---|---|
+| New project, starting fresh | **OIDC (Method 2)** — no secrets to manage |
+| Existing workflows using client secrets | Migrate to OIDC when you can, but no rush |
+| APIOps extractor/publisher | Currently requires `AZURE_CLIENT_SECRET` in env vars — use Method 1 |
+| Terraform, Azure CLI, `azure/login@v2` | **OIDC (Method 2)** — fully supported |
+| Strict security / compliance requirements | **OIDC (Method 2)** — no long-lived credentials |
+
+### Service Principal Permissions
+
+Regardless of which method you use, the service principal needs the **Contributor** role on the subscription (or scoped to specific resource groups):
+
+```bash
+az role assignment create \
+  --assignee <AZURE_CLIENT_ID> \
+  --role "Contributor" \
+  --scope "/subscriptions/<SUBSCRIPTION_ID>"
+```
+
 ## Troubleshooting
 
 | Issue | Solution |
 |---|---|
 | `apim_name` already taken | APIM names are globally unique — add a random suffix |
-| Deployment takes 30+ minutes | Normal for Developer SKU. Use `Consumption_0` for faster demo (but fewer features) |
+| Deployment takes 30+ minutes | You're using a classic SKU (`Developer_1`). Switch to `BasicV2_1` in your `.tfvars` — deploys in ~5 minutes |
 | `terraform plan` shows unexpected changes | Someone modified APIM in the portal. Apply to sync back to code |
 | Authentication error | Run `az login` and ensure your account has Contributor role on the subscription |
