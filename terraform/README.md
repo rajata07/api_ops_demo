@@ -578,6 +578,120 @@ The `modules/apim-api/` module guarantees that **every API** deployed by any tea
 
 Teams **cannot skip** these standards because the module creates them automatically.
 
+## Why Are There Two Deploy Workflows?
+
+This repo has **two separate deploy workflows**. They are **two completely different approaches** — you'd use one OR the other, not both. They exist in the same repo because this is a workshop showing different patterns.
+
+| | `deploy-apim.yml` (Simple CLI) | `deploy-apim-terraform.yaml` (Terraform) |
+|---|---|---|
+| **How it deploys** | `az apim api import` | `terraform apply` |
+| **What it deploys** | API definition ONLY (from `openapi.yaml`) | EVERYTHING — API + policies + products + subscriptions + backends |
+| **State tracking** | None | `.tfstate` file |
+| **Drift detection** | None | `terraform plan` shows drift |
+| **Standards enforcement** | None — you manage everything manually | Shared module enforces naming, products, subscriptions |
+| **Best for** | Quick demo of "OpenAPI in code" approach | Enterprise pattern with full governance |
+
+**In a real project, pick one.** For enterprise customers, use the Terraform approach.
+
+## Developer Guide: How to Add a New API
+
+### Step 1: Create the OpenAPI spec
+
+Create a new file in `api_specs/`:
+
+```yaml
+# terraform/api_specs/payments-api.yaml
+openapi: "3.0.1"
+info:
+  title: Payments API
+  version: "1.0.0"
+paths:
+  /payments:
+    get:
+      operationId: getPayments
+      summary: List payments
+      responses:
+        "200":
+          description: OK
+    post:
+      operationId: createPayment
+      summary: Create payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                currency:
+                  type: string
+      responses:
+        "201":
+          description: Created
+```
+
+### Step 2: Create a policy (optional)
+
+Copy the existing policy or create a new one:
+
+```bash
+cp terraform/policies/api-policy.xml terraform/policies/payments-policy.xml
+```
+
+Edit `payments-policy.xml` if you want different rate limits, CORS rules, etc.
+
+### Step 3: Add the module block to `main.tf`
+
+Open `terraform/main.tf` and add a new module block — this is the only Terraform code you write:
+
+```hcl
+module "payments_api" {
+  source = "./modules/apim-api"
+
+  apim_name           = azurerm_api_management.apim.name
+  resource_group_name = azurerm_resource_group.rg.name
+  api_name            = "payments-api"
+  api_display_name    = "Payments API"
+  api_path            = "payments"
+  api_version         = "v1"
+  openapi_spec        = file("${path.module}/api_specs/payments-api.yaml")
+  policy_xml          = file("${path.module}/policies/payments-policy.xml")
+  backend_url         = var.backend_url
+}
+```
+
+The module automatically creates: version set, product, product-API link, subscription, and backend — all following the same naming conventions and standards as every other API.
+
+### Step 4: Push and deploy
+
+```bash
+git add .
+git commit -m "Add Payments API"
+git push
+```
+
+Then go to **GitHub → Actions → Deploy APIM (Terraform) → Run workflow**.
+
+The workflow deploys to dev first, then prod. Both environments get the new API with all standards applied automatically.
+
+### What You Get After Deploying
+
+For every API you add via the module, you automatically get:
+
+| Resource | Auto-created Name |
+|---|---|
+| API | `payments-api` (versioned as v1) |
+| Version Set | `payments-api-version-set` |
+| Product | `payments-api-product` (published, subscription required) |
+| Product-API link | API associated with its product |
+| Subscription | `Payments API Subscription` (active, scoped to API) |
+| Backend | `payments-api-backend` (if `backend_url` provided) |
+| Policy | Applied from `payments-policy.xml` (if `policy_xml` provided) |
+
+**That's it.** Three files (spec, policy, module block) and one workflow run. Same standards as every other team.
+
 ## Authentication: GitHub to Azure
 
 There are **two ways** for GitHub Actions to authenticate to Azure. This repo uses both.
