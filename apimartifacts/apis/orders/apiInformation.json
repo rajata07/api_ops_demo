@@ -9,6 +9,7 @@
       "http",
       "https"
     ],
+    "serviceUrl": "https://workshop-apim.azure-api.net/orders",
     "subscriptionKeyParameterNames": {
       "header": "Ocp-Apim-Subscription-Key",
       "query": "subscription-key"
