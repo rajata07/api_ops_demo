@@ -1,0 +1,23 @@
+{
+  "properties": {
+    "path": "calc",
+    "apiRevision": "1",
+    "authenticationSettings": {
+      "oAuth2": {
+        "authorizationServerId": "oauth"
+      }
+    },
+    "description": "Arithmetic operations over HTTP!",
+    "isCurrent": true,
+    "displayName": "Basic Calculator",
+    "protocols": [
+      "https"
+    ],
+    "serviceUrl": "https://fastapi-calculadora.onrender.com/calculo-basico",
+    "subscriptionKeyParameterNames": {
+      "header": "Ocp-Apim-Subscription-Key",
+      "query": "subscription-key"
+    },
+    "subscriptionRequired": true
+  }
+}

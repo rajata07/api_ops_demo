@@ -1,0 +1,30 @@
+<!--
+    - Policies are applied in the order they appear.
+    - Position <base/> inside a section to inherit policies from the outer scope.
+    - Comments within policies are not preserved.
+-->
+<!-- Add policies as children to the <inbound>, <outbound>, <backend>, and <on-error> elements -->
+<policies>
+	<!-- Throttle, authorize, validate, cache, or transform the requests -->
+	<inbound>
+		<base />
+		<validate-jwt header-name="Authorization">
+			<openid-config url="https://login.microsoftonline.com/7d2c930d-8e2c-45b0-acc2-ad23c81704c9/.well-known/openid-configuration" />
+			<audiences>
+				<audience>api://9396c531-2872-44ed-8c24-fd3090872ed8</audience>
+			</audiences>
+		</validate-jwt>
+	</inbound>
+	<!-- Control if and how the requests are forwarded to services  -->
+	<backend>
+		<base />
+	</backend>
+	<!-- Customize the responses -->
+	<outbound>
+		<base />
+	</outbound>
+	<!-- Handle exceptions and customize error responses  -->
+	<on-error>
+		<base />
+	</on-error>
+</policies>
