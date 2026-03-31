@@ -1,0 +1,76 @@
+openapi: 3.0.1
+info:
+  title: Orders
+  version: '1.0'
+servers:
+  - url: http://workshop-apim.azure-api.net/orders
+  - url: https://workshop-apim.azure-api.net/orders
+paths:
+  /orders:
+    get:
+      summary: getOrders
+      operationId: getOrders
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+              example:
+                - id: string
+                  amount: 0
+                  description: string
+    post:
+      summary: createOrder
+      operationId: createOrder
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+            example:
+              id: string
+              amount: 0
+              description: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+              example:
+                id: string
+                amount: 0
+                description: string
+components:
+  schemas:
+    Order:
+      required:
+        - id
+        - amount
+        - description
+      type: object
+      properties:
+        id:
+          type: string
+        amount:
+          type: integer
+          format: int32
+        description:
+          type: string
+  securitySchemes:
+    apiKeyHeader:
+      type: apiKey
+      name: Ocp-Apim-Subscription-Key
+      in: header
+    apiKeyQuery:
+      type: apiKey
+      name: subscription-key
+      in: query
+security:
+  - apiKeyHeader: [ ]
+  - apiKeyQuery: [ ]

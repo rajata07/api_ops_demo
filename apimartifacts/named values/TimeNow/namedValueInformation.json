@@ -1,0 +1,7 @@
+{
+  "properties": {
+    "displayName": "ExactTimeNow",
+    "secret": false,
+    "value": "@(DateTime.Now.ToString())"
+  }
+}
