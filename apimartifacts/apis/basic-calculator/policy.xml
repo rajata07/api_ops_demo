@@ -8,20 +8,12 @@
 	<!-- Throttle, authorize, validate, cache, or transform the requests -->
 	<inbound>
 		<base />
-		<set-header name="x-exact-date-now" exists-action="override">
-			<value>{{ExactTimeNow}}</value>
-		</set-header>
-		<return-response>
-			<set-status code="200" reason="OK" />
-			<set-header name="Content-Type" exists-action="override">
-				<value>application/json</value>
-			</set-header>
-			<set-body>{
-            "id": 2,
-            "name": "Demo User 2",
-            "role": "Tester"
-        }</set-body>
-		</return-response>
+		<validate-jwt header-name="Authorization">
+			<openid-config url="https://login.microsoftonline.com/7d2c930d-8e2c-45b0-acc2-ad23c81704c9/.well-known/openid-configuration" />
+			<audiences>
+				<audience>api://9396c531-2872-44ed-8c24-fd3090872ed8</audience>
+			</audiences>
+		</validate-jwt>
 	</inbound>
 	<!-- Control if and how the requests are forwarded to services  -->
 	<backend>

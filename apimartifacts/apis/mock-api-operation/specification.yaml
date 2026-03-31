@@ -17,6 +17,7 @@ paths:
   /dummy:
     get:
       summary: Dummy User
+      description: Dummy User
       operationId: dummy-user
       responses:
         '200':
